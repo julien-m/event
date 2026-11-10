@@ -79,11 +79,12 @@
       parentTitle: String? = nil,
       flagged: Bool? = nil,
       locationTrigger: LocationTrigger? = nil,
+      recurrenceRule: RecurrenceRule? = nil,
       schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
-      try schedule.checkNativeEarlySupport()
+      try schedule.checkNativeSupport()
 
       // Step 1: Create basic reminder via EventKit
       let reminderId = try createViaEventKit(
@@ -94,6 +95,7 @@
         dueDate: dueDate,
         priority: priority,
         locationTrigger: locationTrigger,
+        recurrenceRule: recurrenceRule,
         schedule: schedule
       )
 
@@ -130,11 +132,13 @@
       flagged: Bool? = nil,
       locationTrigger: LocationTrigger? = nil,
       clearLocation: Bool = false,
+      recurrenceRule: RecurrenceRule? = nil,
+      clearRecurrence: Bool = false,
       schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
-      try schedule.checkNativeEarlySupport()
+      try schedule.checkNativeSupport()
 
       // Step 1: Update basic properties via EventKit
       try updateViaEventKit(
@@ -150,6 +154,8 @@
         url: url,
         locationTrigger: locationTrigger,
         clearLocation: clearLocation,
+        recurrenceRule: recurrenceRule,
+        clearRecurrence: clearRecurrence,
         schedule: schedule
       )
 
@@ -304,6 +310,21 @@
       }
     }
 
+    /// Build the DateComponents for a reminder due/start date.
+    ///
+    /// A date-only string ("yyyy-MM-dd") produces components without hour and minute,
+    /// which is how EventKit represents an all-day reminder. Reminders.app then shows
+    /// the day without a time. Anything else keeps the time component.
+    static func reminderDateComponents(from dateString: String) throws -> DateComponents {
+      if Date.isAllDayFormat(dateString) {
+        let date = try Date.validated(dateString: dateString)
+        return DateComponentsBuilder.buildAllDay(from: date, timeZone: .current)
+      }
+
+      let date = try Date.validated(dateTimeString: dateString)
+      return DateComponentsBuilder.build(from: date, timeZone: .current)
+    }
+
     /// Create reminder via EventKit (basic properties only)
     private func createViaEventKit(
       title: String,
@@ -313,6 +334,7 @@
       dueDate: String?,
       priority: Int?,
       locationTrigger: LocationTrigger?,
+      recurrenceRule: RecurrenceRule?,
       schedule: ReminderSchedule
     ) throws -> String {
       let ekReminder = EKReminder(eventStore: eventStore)
@@ -340,16 +362,7 @@
 
       // Set due date
       if let dueDateString = dueDate {
-        let isAllDay = Date.isAllDayFormat(dueDateString)
-        let date =
-          try isAllDay
-          ? Date.validated(dateString: dueDateString)
-          : Date.validated(dateTimeString: dueDateString)
-        let components =
-          isAllDay
-          ? DateComponentsBuilder.buildAllDay(from: date, timeZone: .current)
-          : DateComponentsBuilder.build(from: date, timeZone: .current)
-        ekReminder.dueDateComponents = components
+        ekReminder.dueDateComponents = try Self.reminderDateComponents(from: dueDateString)
       }
 
       // Set priority
@@ -362,9 +375,14 @@
         ekReminder.addAlarm(trigger.toEKAlarm())
       }
 
+      // Repeat rule (needs the due date set above)
+      if let rule = recurrenceRule {
+        try ekReminder.setRecurrenceRule(rule)
+      }
+
       try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
-      try schedule.applyNativeEarly(to: ekReminder.calendarItemIdentifier)
+      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
       return ekReminder.calendarItemIdentifier
     }
 
@@ -382,6 +400,8 @@
       url: String?,
       locationTrigger: LocationTrigger?,
       clearLocation: Bool,
+      recurrenceRule: RecurrenceRule?,
+      clearRecurrence: Bool,
       schedule: ReminderSchedule
     ) throws {
       guard let ekReminder = eventStore.calendarItem(withIdentifier: id) as? EKReminder else {
@@ -407,24 +427,13 @@
       if clearDue {
         ekReminder.dueDateComponents = nil
       } else if let dueDateString = dueDate {
-        let isAllDay = Date.isAllDayFormat(dueDateString)
-        let date =
-          try isAllDay
-          ? Date.validated(dateString: dueDateString)
-          : Date.validated(dateTimeString: dueDateString)
-        let components =
-          isAllDay
-          ? DateComponentsBuilder.buildAllDay(from: date, timeZone: .current)
-          : DateComponentsBuilder.build(from: date, timeZone: .current)
-        ekReminder.dueDateComponents = components
+        ekReminder.dueDateComponents = try Self.reminderDateComponents(from: dueDateString)
       }
 
       if clearStart {
         ekReminder.startDateComponents = nil
       } else if let startDateString = startDate {
-        let date = try Date.validated(dateTimeString: startDateString)
-        let components = DateComponentsBuilder.build(from: date, timeZone: .current)
-        ekReminder.startDateComponents = components
+        ekReminder.startDateComponents = try Self.reminderDateComponents(from: startDateString)
       }
 
       if let priority = priority {
@@ -440,9 +449,17 @@
         ekReminder.addAlarm(trigger.toEKAlarm())
       }
 
+      // Repeat rule: clear or replace. After the due-date change, so --due and --recurrence
+      // can be given together.
+      if clearRecurrence {
+        ekReminder.recurrenceRules = nil
+      } else if let rule = recurrenceRule {
+        try ekReminder.setRecurrenceRule(rule)
+      }
+
       try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
-      try schedule.applyNativeEarly(to: ekReminder.calendarItemIdentifier)
+      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
     }
   }
 

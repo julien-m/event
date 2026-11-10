@@ -16,6 +16,7 @@
     var clearRecurrence = false
     var earlyReminder: Int?
     var clearEarlyReminder = false
+    var urgent: Bool?
 
     func apply(to reminder: EKReminder) throws {
       guard !(clearRecurrence && recurrence != nil),
@@ -74,10 +75,13 @@
         }
         newRule = EKRecurrenceRule(recurrenceWith: frequency, interval: interval, end: end)
       }
-      if earlyReminder != nil {
+      if earlyReminder != nil || urgent == true {
         guard let due = reminder.dueDateComponents, due.hour != nil,
           due.minute != nil, resolvedDate(due) != nil
-        else { throw EventCLIError.invalidInput("Early reminder requires a due date with a time.") }
+        else {
+          throw EventCLIError.invalidInput(
+            "Early reminder and Urgent require a due date with a time.")
+        }
       }
       // Validate first, then mutate. Unknown/absolute and location alarms are preserved.
       if clearRecurrence || newRule != nil {
@@ -86,19 +90,27 @@
       }
     }
 
-    func checkNativeEarlySupport() throws {
+    func checkNativeSupport() throws {
       if (earlyReminder != nil || clearEarlyReminder) && !ReminderKitEarlyReminderAvailable() {
         throw EventCLIError.invalidInput(
           "Native Early Reminder requires ReminderKit support on this Mac.")
       }
+      if urgent != nil && !ReminderKitUrgentAvailable() {
+        throw EventCLIError.invalidInput("Native Urgent requires ReminderKit support on this Mac.")
+      }
     }
 
-    func applyNativeEarly(to identifier: String) throws {
-      guard earlyReminder != nil || clearEarlyReminder else { return }
-      if let error = ReminderKitSetEarlyReminder(identifier, earlyReminder ?? 0, clearEarlyReminder)
+    func applyNativeChanges(to identifier: String) throws {
+      if earlyReminder != nil || clearEarlyReminder,
+        let error = ReminderKitSetEarlyReminder(identifier, earlyReminder ?? 0, clearEarlyReminder)
       {
         throw EventCLIError.invalidInput(
           "Reminder \(identifier) was saved, but native Early Reminder failed: \(error). Read that ID before retrying."
+        )
+      }
+      if let urgent, let error = ReminderKitSetUrgent(identifier, urgent) {
+        throw EventCLIError.invalidInput(
+          "Reminder \(identifier) was saved, but native Urgent failed: \(error). Read that ID before retrying."
         )
       }
     }

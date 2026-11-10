@@ -83,6 +83,16 @@ event reminders create --title "Buy groceries" --tags "shopping,urgent"
 # Mark reminder complete
 event reminders update --id <REMINDER_ID> --completed
 
+# Repeat monthly (a repeat rule needs a due date)
+event reminders create --title "Pay rent" --due "2026-10-01 09:00:00" --recurrence monthly
+
+# Repeat on the first weekday of each month
+event reminders create --title "Bank statements" --due 2026-12-01 --recurrence monthly --recurrence-days mon,tue,wed,thu,fri --recurrence-positions 1
+
+# Repeat every other Monday and Wednesday until year end; remove the rule
+event reminders update --id <REMINDER_ID> --recurrence weekly --recurrence-interval 2 --recurrence-days mon,wed --recurrence-end 2026-12-31
+event reminders update --id <REMINDER_ID> --clear-recurrence
+
 # Delete a reminder
 event reminders delete --id <REMINDER_ID>
 
@@ -239,6 +249,6 @@ Frad Lee - [frad.me](https://frad.me)
 
 ## Fork: reminder scheduling
 
-The maintained fork adds `--recurrence` JSON (frequency, interval, inclusive endDate), `--clear-recurrence`, `--early-reminder` minutes, and `--clear-early-reminder` to reminder create/update. Recurrence uses EventKit. Native Early Reminder uses an isolated macOS ReminderKit adapter; ordinary EventKit alarms are preserved. This private API may change between macOS versions. Unsupported capabilities fail explicitly. An error after the EventKit save includes the saved reminder ID; read it before retrying. Native Early Reminder is separate from the EventKit read model and does not enable Urgent.
+The maintained fork adds `--recurrence-json` (frequency, interval, inclusive endDate), `--clear-schedule-recurrence`, `--early-reminder` minutes, `--clear-early-reminder`, and `--urgent true|false` to reminder create/update. Recurrence uses EventKit. Native Early Reminder uses an isolated macOS ReminderKit adapter; ordinary EventKit alarms are preserved. This private API may change between macOS versions. Unsupported capabilities fail explicitly. An error after the EventKit save includes the saved reminder ID; read it before retrying. Native Early Reminder is separate from the EventKit read model. Urgent is enabled or disabled only when explicitly requested; it requires a timed due date when enabled, preserves Early Reminder and priority, and is read back after saving. The upstream frequency-based `--recurrence` flags remain available alongside the distinct JSON interface.
 
 Read [third-party notices](THIRD_PARTY_NOTICES.md) for the reference implementation attribution.

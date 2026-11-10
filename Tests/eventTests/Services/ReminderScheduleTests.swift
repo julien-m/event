@@ -79,6 +79,28 @@
       XCTAssertThrowsError(try ReminderSchedule(earlyReminder: 30).apply(to: reminder))
     }
 
+    func testUrgentRequiresTimedDueOnlyWhenEnabling() throws {
+      let reminder = makeReminder()
+      XCTAssertNoThrow(try ReminderSchedule(urgent: true).apply(to: reminder))
+      reminder.dueDateComponents = nil
+      XCTAssertThrowsError(try ReminderSchedule(urgent: true).apply(to: reminder))
+      XCTAssertNoThrow(try ReminderSchedule(urgent: false).apply(to: reminder))
+      XCTAssertNoThrow(try ReminderSchedule().apply(to: reminder))
+      reminder.dueDateComponents = Calendar.current.dateComponents(
+        [.year, .month, .day], from: Date())
+      XCTAssertThrowsError(try ReminderSchedule(urgent: true).apply(to: reminder))
+    }
+
+    func testUrgentCommandPreservesThreeStates() throws {
+      let enabled = try ReminderCommands.Create.parse(["--title", "Test", "--urgent", "true"])
+      XCTAssertEqual(enabled.scheduleOptions.urgent, true)
+      let disabled = try ReminderCommands.Update.parse(["--id", "r", "--urgent", "false"])
+      XCTAssertEqual(disabled.scheduleOptions.urgent, false)
+      let omitted = try ReminderCommands.Update.parse(["--id", "r"])
+      XCTAssertNil(omitted.scheduleOptions.urgent)
+      XCTAssertThrowsError(try ReminderCommands.Update.parse(["--id", "r", "--urgent", "maybe"]))
+    }
+
     func testCommandRejectsConflictingAndNonpositiveOptions() throws {
       XCTAssertThrowsError(
         try ReminderCommands.Create.parse(["--title", "Care", "--early-reminder", "0"]))
@@ -87,7 +109,9 @@
           "--id", "r", "--early-reminder", "15", "--clear-early-reminder",
         ]))
       XCTAssertThrowsError(
-        try ReminderCommands.Update.parse(["--id", "r", "--recurrence", "{}", "--clear-recurrence"])
+        try ReminderCommands.Update.parse([
+          "--id", "r", "--recurrence-json", "{}", "--clear-schedule-recurrence",
+        ])
       )
     }
   }

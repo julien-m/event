@@ -15,6 +15,9 @@
 - (void)setIncludeDueDateDeltaAlerts:(BOOL)include;
 - (id)initWithStore:(id)store;
 - (id)updateReminder:(id)reminder;
+- (id)urgentAlarmContext;
+- (void)setIsUrgentStateEnabledForCurrentUser:(BOOL)value;
+- (BOOL)isUrgentStateEnabledForCurrentUser;
 - (id)dueDateDeltaAlertContext;
 - (NSArray *)dueDateDeltaAlerts;
 - (id)fetchedCurrentDueDateDeltaAlert;
@@ -27,15 +30,25 @@
 - (BOOL)saveSynchronouslyWithError:(NSError **)error;
 @end
 
-BOOL ReminderKitEarlyReminderAvailable(void) {
+static BOOL ReminderKitLoad(void) {
   static void *handle;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     handle = dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit", RTLD_NOW | RTLD_LOCAL);
   });
   return handle && NSClassFromString(@"REMStore") && NSClassFromString(@"REMObjectID")
-    && NSClassFromString(@"REMSaveRequest") && NSClassFromString(@"REMDueDateDeltaInterval")
+    && NSClassFromString(@"REMSaveRequest");
+}
+
+BOOL ReminderKitEarlyReminderAvailable(void) {
+  return ReminderKitLoad() && NSClassFromString(@"REMDueDateDeltaInterval")
     && NSClassFromString(@"REMReminderFetchOptions");
+}
+
+BOOL ReminderKitUrgentAvailable(void) {
+  return ReminderKitLoad()
+    && [NSClassFromString(@"REMReminderUrgentAlarmContextChangeItem") instancesRespondToSelector:@selector(setIsUrgentStateEnabledForCurrentUser:)]
+    && [NSClassFromString(@"REMReminderUrgentAlarmContext") instancesRespondToSelector:@selector(isUrgentStateEnabledForCurrentUser)];
 }
 
 NSString *ReminderKitSetEarlyReminder(NSString *identifier, NSInteger minutes, BOOL clear) {
@@ -106,6 +119,46 @@ NSString *ReminderKitSetEarlyReminder(NSString *identifier, NSInteger minutes, B
       return @"Native Early Reminder write could not be verified within two seconds.";
     } @catch (NSException *exception) {
       return [@"ReminderKit scheduling failed: " stringByAppendingString:exception.reason ?: exception.name];
+    }
+  }
+}
+
+
+NSString *ReminderKitSetUrgent(NSString *identifier, BOOL urgent) {
+  @autoreleasepool {
+    @try {
+      if (![[NSUUID alloc] initWithUUIDString:identifier]) return @"Invalid reminder identifier.";
+      if (!ReminderKitUrgentAvailable()) return @"Native Urgent is unavailable on this macOS version.";
+      Class ids = NSClassFromString(@"REMObjectID");
+      if (![ids respondsToSelector:@selector(objectIDWithURL:)]) return @"ReminderKit object ID API unavailable.";
+      id objectID = [ids objectIDWithURL:[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:identifier]]];
+      id store = [NSClassFromString(@"REMStore") new];
+      if (![store respondsToSelector:@selector(fetchReminderWithObjectID:fetchOptions:error:)]) return @"ReminderKit fetch API unavailable.";
+      NSError *error = nil;
+      id reminder = [store fetchReminderWithObjectID:objectID fetchOptions:nil error:&error];
+      if (!reminder) return error.localizedDescription ?: @"ReminderKit could not find the reminder.";
+      id save = [[NSClassFromString(@"REMSaveRequest") alloc] initWithStore:store];
+      if (![save respondsToSelector:@selector(updateReminder:)] || ![save respondsToSelector:@selector(saveSynchronouslyWithError:)]) return @"ReminderKit save API unavailable.";
+      id change = [save updateReminder:reminder];
+      if (![change respondsToSelector:@selector(urgentAlarmContext)]) return @"Native Urgent context unavailable.";
+      id context = [change urgentAlarmContext];
+      if (![context respondsToSelector:@selector(setIsUrgentStateEnabledForCurrentUser:)]) return @"Native Urgent mutation API unavailable.";
+      [context setIsUrgentStateEnabledForCurrentUser:urgent];
+      if (![save saveSynchronouslyWithError:&error]) return error.localizedDescription ?: @"Native Urgent save failed.";
+      for (NSInteger attempt = 0; attempt < 20; attempt++) {
+        id verifyStore = [NSClassFromString(@"REMStore") new];
+        error = nil;
+        id saved = [verifyStore fetchReminderWithObjectID:objectID fetchOptions:nil error:&error];
+        if (!saved) return error.localizedDescription ?: @"Could not verify saved Urgent state.";
+        if (![saved respondsToSelector:@selector(urgentAlarmContext)]) return @"Native Urgent read context unavailable.";
+        id savedContext = [saved urgentAlarmContext];
+        if (![savedContext respondsToSelector:@selector(isUrgentStateEnabledForCurrentUser)]) return @"Native Urgent read API unavailable.";
+        if ([savedContext isUrgentStateEnabledForCurrentUser] == urgent) return nil;
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+      }
+      return @"Native Urgent write could not be verified.";
+    } @catch (NSException *exception) {
+      return [@"ReminderKit Urgent failed: " stringByAppendingString:exception.reason ?: exception.name];
     }
   }
 }
