@@ -245,3 +245,10 @@ MIT License
 ## Author
 
 Frad Lee - [frad.me](https://frad.me)
+
+
+## Fork: reminder scheduling
+
+The maintained fork adds `--recurrence-json` (frequency, interval, inclusive endDate), `--clear-schedule-recurrence`, `--early-reminder` minutes, `--clear-early-reminder`, and `--urgent true|false` to reminder create/update. Recurrence uses EventKit. Native Early Reminder uses an isolated macOS ReminderKit adapter; ordinary EventKit alarms are preserved. This private API may change between macOS versions. Unsupported capabilities fail explicitly. An error after the EventKit save includes the saved reminder ID; read it before retrying. Native Early Reminder is separate from the EventKit read model. Urgent is enabled or disabled only when explicitly requested; it requires a timed due date when enabled, preserves Early Reminder and priority, and is read back after saving. The upstream frequency-based `--recurrence` flags remain available alongside the distinct JSON interface.
+
+Read [third-party notices](THIRD_PARTY_NOTICES.md) for the reference implementation attribution.

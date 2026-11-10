@@ -100,6 +100,41 @@ struct ReminderCommands: AsyncParsableCommand {
     }
   }
 
+  struct ScheduleOptions: ParsableArguments {
+    @Option(
+      name: .customLong("recurrence-json"),
+      help: "Recurrence JSON: frequency, optional interval and endDate")
+    var recurrence: String?
+    @Flag(
+      name: .customLong("clear-schedule-recurrence"),
+      help: "Remove recurrence through the scheduling JSON interface")
+    var clearRecurrence = false
+    @Option(name: .long, help: "Minutes before due time (positive integer)")
+    var earlyReminder: Int?
+    @Flag(name: .long, help: "Remove the native Early Reminder")
+    var clearEarlyReminder = false
+    @Option(name: .long, help: "Enable or disable native Urgent (true/false); omit to preserve")
+    var urgent: Bool?
+
+    func validate() throws {
+      guard !(clearRecurrence && recurrence != nil),
+        !(clearEarlyReminder && earlyReminder != nil),
+        earlyReminder == nil || (earlyReminder! > 0 && earlyReminder! <= Int(Int32.max))
+      else { throw ValidationError("Invalid or conflicting reminder schedule options.") }
+    }
+    var isPresent: Bool {
+      recurrence != nil || clearRecurrence || earlyReminder != nil || clearEarlyReminder
+        || urgent != nil
+    }
+    #if canImport(EventKit)
+      var schedule: ReminderSchedule {
+        ReminderSchedule(
+          recurrence: recurrence, clearRecurrence: clearRecurrence,
+          earlyReminder: earlyReminder, clearEarlyReminder: clearEarlyReminder, urgent: urgent)
+      }
+    #endif
+  }
+
   /// Shared `--recurrence*` flags for the commands that accept a repeat rule.
   struct RecurrenceOptions: ParsableArguments {
     @Option(name: .long, help: "Repeat frequency: daily | weekly | monthly | yearly")
@@ -358,6 +393,7 @@ struct ReminderCommands: AsyncParsableCommand {
     var flagged: Bool?
 
     @OptionGroup var locationOptions: LocationOptions
+    @OptionGroup var scheduleOptions: ScheduleOptions
 
     @OptionGroup var recurrenceOptions: RecurrenceOptions
 
@@ -370,6 +406,12 @@ struct ReminderCommands: AsyncParsableCommand {
     func run() async throws {
       #if canImport(EventKit)
         let locationTrigger = try locationOptions.resolveTrigger()
+        if (scheduleOptions.recurrence != nil || scheduleOptions.clearRecurrence)
+          && recurrenceOptions.isPresent
+        {
+          throw EventCLIError.invalidInput(
+            "Do not combine recurrence JSON with recurrence frequency flags.")
+        }
         let recurrenceRule = try recurrenceOptions.resolveRule()
         let service = ReminderService()
         let reminder = try await service.createReminder(
@@ -384,9 +426,13 @@ struct ReminderCommands: AsyncParsableCommand {
           flagged: flagged,
           locationTrigger: locationTrigger,
           recurrenceRule: recurrenceRule,
+          schedule: scheduleOptions.schedule,
           useShortcuts: !noShortcuts
         )
       #else
+        if scheduleOptions.isPresent {
+          throw EventCLIError.invalidInput("Reminder scheduling writes require macOS EventKit.")
+        }
         let backend = try await BackendFactory.makeRemindersBackend()
         let params = CreateReminderParams(
           title: title,
@@ -461,6 +507,7 @@ struct ReminderCommands: AsyncParsableCommand {
     var flagged: Bool?
 
     @OptionGroup var locationOptions: LocationOptions
+    @OptionGroup var scheduleOptions: ScheduleOptions
 
     @Flag(name: .long, help: "Remove existing location-based alarms")
     var clearLocation = false
@@ -491,6 +538,9 @@ struct ReminderCommands: AsyncParsableCommand {
           "Use either --location/--latitude/--longitude or --clear-location, not both."
         )
       }
+      if clearRecurrence && (scheduleOptions.recurrence != nil || scheduleOptions.clearRecurrence) {
+        throw EventCLIError.invalidInput("Do not combine JSON recurrence with --clear-recurrence.")
+      }
       if clearRecurrence, recurrenceOptions.isPresent {
         throw EventCLIError.invalidInput(
           "Use either --recurrence/--recurrence-* or --clear-recurrence, not both."
@@ -499,6 +549,12 @@ struct ReminderCommands: AsyncParsableCommand {
 
       #if canImport(EventKit)
         let locationTrigger = try locationOptions.resolveTrigger()
+        if (scheduleOptions.recurrence != nil || scheduleOptions.clearRecurrence)
+          && recurrenceOptions.isPresent
+        {
+          throw EventCLIError.invalidInput(
+            "Do not combine recurrence JSON with recurrence frequency flags.")
+        }
         let recurrenceRule = try recurrenceOptions.resolveRule()
         let service = ReminderService()
         let reminder = try await service.updateReminder(
@@ -519,9 +575,13 @@ struct ReminderCommands: AsyncParsableCommand {
           clearLocation: clearLocation,
           recurrenceRule: recurrenceRule,
           clearRecurrence: clearRecurrence,
+          schedule: scheduleOptions.schedule,
           useShortcuts: !noShortcuts
         )
       #else
+        if scheduleOptions.isPresent {
+          throw EventCLIError.invalidInput("Reminder scheduling writes require macOS EventKit.")
+        }
         let backend = try await BackendFactory.makeRemindersBackend()
         let params = UpdateReminderParams(
           title: title,

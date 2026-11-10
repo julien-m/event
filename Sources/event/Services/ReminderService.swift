@@ -80,9 +80,11 @@
       flagged: Bool? = nil,
       locationTrigger: LocationTrigger? = nil,
       recurrenceRule: RecurrenceRule? = nil,
+      schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
+      try schedule.checkNativeSupport()
 
       // Step 1: Create basic reminder via EventKit
       let reminderId = try createViaEventKit(
@@ -93,7 +95,8 @@
         dueDate: dueDate,
         priority: priority,
         locationTrigger: locationTrigger,
-        recurrenceRule: recurrenceRule
+        recurrenceRule: recurrenceRule,
+        schedule: schedule
       )
 
       // Step 2: Post-process with advanced features if needed (tags, flagged, parentTitle, url)
@@ -131,9 +134,11 @@
       clearLocation: Bool = false,
       recurrenceRule: RecurrenceRule? = nil,
       clearRecurrence: Bool = false,
+      schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
+      try schedule.checkNativeSupport()
 
       // Step 1: Update basic properties via EventKit
       try updateViaEventKit(
@@ -150,7 +155,8 @@
         locationTrigger: locationTrigger,
         clearLocation: clearLocation,
         recurrenceRule: recurrenceRule,
-        clearRecurrence: clearRecurrence
+        clearRecurrence: clearRecurrence,
+        schedule: schedule
       )
 
       // Step 2: Post-process with advanced features if needed
@@ -328,7 +334,8 @@
       dueDate: String?,
       priority: Int?,
       locationTrigger: LocationTrigger?,
-      recurrenceRule: RecurrenceRule?
+      recurrenceRule: RecurrenceRule?,
+      schedule: ReminderSchedule
     ) throws -> String {
       let ekReminder = EKReminder(eventStore: eventStore)
       ekReminder.title = title
@@ -373,7 +380,9 @@
         try ekReminder.setRecurrenceRule(rule)
       }
 
+      try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
+      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
       return ekReminder.calendarItemIdentifier
     }
 
@@ -392,7 +401,8 @@
       locationTrigger: LocationTrigger?,
       clearLocation: Bool,
       recurrenceRule: RecurrenceRule?,
-      clearRecurrence: Bool
+      clearRecurrence: Bool,
+      schedule: ReminderSchedule
     ) throws {
       guard let ekReminder = eventStore.calendarItem(withIdentifier: id) as? EKReminder else {
         throw EventCLIError.notFound("Reminder with ID '\(id)' not found")
@@ -447,7 +457,9 @@
         try ekReminder.setRecurrenceRule(rule)
       }
 
+      try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
+      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
     }
   }
 

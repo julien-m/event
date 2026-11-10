@@ -18,6 +18,8 @@ let package = Package(
   ],
   targets: [
     .target(
+      name: "ReminderKitBridge", path: "Sources/ReminderKitBridge", publicHeadersPath: "include"),
+    .target(
       name: "EventModels",
       dependencies: [
         .product(name: "AppleSyncKit", package: "apple-sync-kit")
@@ -46,6 +48,7 @@ let package = Package(
     .executableTarget(
       name: "event",
       dependencies: [
+        .target(name: "ReminderKitBridge", condition: .when(platforms: [.macOS])),
         "EventModels",
         "EventSync",
         "EventCommands",
