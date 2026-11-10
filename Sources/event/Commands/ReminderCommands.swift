@@ -100,6 +100,34 @@ struct ReminderCommands: AsyncParsableCommand {
     }
   }
 
+  struct ScheduleOptions: ParsableArguments {
+    @Option(name: .long, help: "Recurrence JSON: frequency, optional interval and endDate")
+    var recurrence: String?
+    @Flag(name: .long, help: "Remove recurrence")
+    var clearRecurrence = false
+    @Option(name: .long, help: "Minutes before due time (positive integer)")
+    var earlyReminder: Int?
+    @Flag(name: .long, help: "Remove relative early alerts only")
+    var clearEarlyReminder = false
+
+    func validate() throws {
+      guard !(clearRecurrence && recurrence != nil),
+        !(clearEarlyReminder && earlyReminder != nil),
+        earlyReminder == nil || (earlyReminder! > 0 && earlyReminder! <= Int(Int32.max))
+      else { throw ValidationError("Invalid or conflicting reminder schedule options.") }
+    }
+    var isPresent: Bool {
+      recurrence != nil || clearRecurrence || earlyReminder != nil || clearEarlyReminder
+    }
+    #if canImport(EventKit)
+      var schedule: ReminderSchedule {
+        ReminderSchedule(
+          recurrence: recurrence, clearRecurrence: clearRecurrence,
+          earlyReminder: earlyReminder, clearEarlyReminder: clearEarlyReminder)
+      }
+    #endif
+  }
+
   struct List: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
       abstract: "List reminders"
@@ -191,6 +219,7 @@ struct ReminderCommands: AsyncParsableCommand {
     var flagged: Bool?
 
     @OptionGroup var locationOptions: LocationOptions
+    @OptionGroup var scheduleOptions: ScheduleOptions
 
     @Flag(name: .long, help: "Disable Shortcut integration")
     var noShortcuts = false
@@ -213,9 +242,13 @@ struct ReminderCommands: AsyncParsableCommand {
           parentTitle: parentTitle,
           flagged: flagged,
           locationTrigger: locationTrigger,
+          schedule: scheduleOptions.schedule,
           useShortcuts: !noShortcuts
         )
       #else
+        if scheduleOptions.isPresent {
+          throw EventCLIError.invalidInput("Reminder scheduling writes require macOS EventKit.")
+        }
         let backend = try await BackendFactory.makeRemindersBackend()
         let params = CreateReminderParams(
           title: title,
@@ -285,6 +318,7 @@ struct ReminderCommands: AsyncParsableCommand {
     var flagged: Bool?
 
     @OptionGroup var locationOptions: LocationOptions
+    @OptionGroup var scheduleOptions: ScheduleOptions
 
     @Flag(name: .long, help: "Remove existing location-based alarms")
     var clearLocation = false
@@ -330,9 +364,13 @@ struct ReminderCommands: AsyncParsableCommand {
           flagged: flagged,
           locationTrigger: locationTrigger,
           clearLocation: clearLocation,
+          schedule: scheduleOptions.schedule,
           useShortcuts: !noShortcuts
         )
       #else
+        if scheduleOptions.isPresent {
+          throw EventCLIError.invalidInput("Reminder scheduling writes require macOS EventKit.")
+        }
         let backend = try await BackendFactory.makeRemindersBackend()
         let params = UpdateReminderParams(
           title: title,

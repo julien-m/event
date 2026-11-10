@@ -79,9 +79,11 @@
       parentTitle: String? = nil,
       flagged: Bool? = nil,
       locationTrigger: LocationTrigger? = nil,
+      schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
+      try schedule.checkNativeEarlySupport()
 
       // Step 1: Create basic reminder via EventKit
       let reminderId = try createViaEventKit(
@@ -91,7 +93,8 @@
         url: url,
         dueDate: dueDate,
         priority: priority,
-        locationTrigger: locationTrigger
+        locationTrigger: locationTrigger,
+        schedule: schedule
       )
 
       // Step 2: Post-process with advanced features if needed (tags, flagged, parentTitle, url)
@@ -127,9 +130,11 @@
       flagged: Bool? = nil,
       locationTrigger: LocationTrigger? = nil,
       clearLocation: Bool = false,
+      schedule: ReminderSchedule = ReminderSchedule(),
       useShortcuts: Bool = true
     ) async throws -> Reminder {
       try await permissionService.ensureRemindersAccess()
+      try schedule.checkNativeEarlySupport()
 
       // Step 1: Update basic properties via EventKit
       try updateViaEventKit(
@@ -144,7 +149,8 @@
         priority: priority,
         url: url,
         locationTrigger: locationTrigger,
-        clearLocation: clearLocation
+        clearLocation: clearLocation,
+        schedule: schedule
       )
 
       // Step 2: Post-process with advanced features if needed
@@ -306,7 +312,8 @@
       url: String?,
       dueDate: String?,
       priority: Int?,
-      locationTrigger: LocationTrigger?
+      locationTrigger: LocationTrigger?,
+      schedule: ReminderSchedule
     ) throws -> String {
       let ekReminder = EKReminder(eventStore: eventStore)
       ekReminder.title = title
@@ -333,8 +340,15 @@
 
       // Set due date
       if let dueDateString = dueDate {
-        let date = try Date.validated(dateTimeString: dueDateString)
-        let components = DateComponentsBuilder.build(from: date, timeZone: .current)
+        let isAllDay = Date.isAllDayFormat(dueDateString)
+        let date =
+          try isAllDay
+          ? Date.validated(dateString: dueDateString)
+          : Date.validated(dateTimeString: dueDateString)
+        let components =
+          isAllDay
+          ? DateComponentsBuilder.buildAllDay(from: date, timeZone: .current)
+          : DateComponentsBuilder.build(from: date, timeZone: .current)
         ekReminder.dueDateComponents = components
       }
 
@@ -348,7 +362,9 @@
         ekReminder.addAlarm(trigger.toEKAlarm())
       }
 
+      try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
+      try schedule.applyNativeEarly(to: ekReminder.calendarItemIdentifier)
       return ekReminder.calendarItemIdentifier
     }
 
@@ -365,7 +381,8 @@
       priority: Int?,
       url: String?,
       locationTrigger: LocationTrigger?,
-      clearLocation: Bool
+      clearLocation: Bool,
+      schedule: ReminderSchedule
     ) throws {
       guard let ekReminder = eventStore.calendarItem(withIdentifier: id) as? EKReminder else {
         throw EventCLIError.notFound("Reminder with ID '\(id)' not found")
@@ -390,8 +407,15 @@
       if clearDue {
         ekReminder.dueDateComponents = nil
       } else if let dueDateString = dueDate {
-        let date = try Date.validated(dateTimeString: dueDateString)
-        let components = DateComponentsBuilder.build(from: date, timeZone: .current)
+        let isAllDay = Date.isAllDayFormat(dueDateString)
+        let date =
+          try isAllDay
+          ? Date.validated(dateString: dueDateString)
+          : Date.validated(dateTimeString: dueDateString)
+        let components =
+          isAllDay
+          ? DateComponentsBuilder.buildAllDay(from: date, timeZone: .current)
+          : DateComponentsBuilder.build(from: date, timeZone: .current)
         ekReminder.dueDateComponents = components
       }
 
@@ -416,7 +440,9 @@
         ekReminder.addAlarm(trigger.toEKAlarm())
       }
 
+      try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
+      try schedule.applyNativeEarly(to: ekReminder.calendarItemIdentifier)
     }
   }
 
