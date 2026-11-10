@@ -135,8 +135,10 @@ NSString *ReminderKitSetUrgent(NSString *identifier, BOOL urgent) {
       id store = [NSClassFromString(@"REMStore") new];
       if (![store respondsToSelector:@selector(fetchReminderWithObjectID:fetchOptions:error:)]) return @"ReminderKit fetch API unavailable.";
       NSError *error = nil;
-      id reminder = [store fetchReminderWithObjectID:objectID fetchOptions:nil error:&error];
-      if (!reminder) return error.localizedDescription ?: @"ReminderKit could not find the reminder.";
+      id options = [NSClassFromString(@"REMReminderFetchOptions") new];
+      if (!options) return @"ReminderKit Urgent fetch options unavailable.";
+      id reminder = [store fetchReminderWithObjectID:objectID fetchOptions:options error:&error];
+      if (!reminder) return [@"Urgent fetch failed: " stringByAppendingString:error.localizedDescription ?: @"Reminder not found."];
       id save = [[NSClassFromString(@"REMSaveRequest") alloc] initWithStore:store];
       if (![save respondsToSelector:@selector(updateReminder:)] || ![save respondsToSelector:@selector(saveSynchronouslyWithError:)]) return @"ReminderKit save API unavailable.";
       id change = [save updateReminder:reminder];
@@ -148,7 +150,7 @@ NSString *ReminderKitSetUrgent(NSString *identifier, BOOL urgent) {
       for (NSInteger attempt = 0; attempt < 20; attempt++) {
         id verifyStore = [NSClassFromString(@"REMStore") new];
         error = nil;
-        id saved = [verifyStore fetchReminderWithObjectID:objectID fetchOptions:nil error:&error];
+        id saved = [verifyStore fetchReminderWithObjectID:objectID fetchOptions:options error:&error];
         if (!saved) return error.localizedDescription ?: @"Could not verify saved Urgent state.";
         if (![saved respondsToSelector:@selector(urgentAlarmContext)]) return @"Native Urgent read context unavailable.";
         id savedContext = [saved urgentAlarmContext];
