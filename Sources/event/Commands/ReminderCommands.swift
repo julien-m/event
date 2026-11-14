@@ -102,6 +102,11 @@ struct ReminderCommands: AsyncParsableCommand {
 
   struct ScheduleOptions: ParsableArguments {
     @Option(
+      name: .customLong("temporal-alarm-json"),
+      help: "Targeted absolute temporal alarm JSON: add/replace/clear with explicit RFC3339 seconds"
+    )
+    var temporalAlarm: String?
+    @Option(
       name: .customLong("recurrence-json"),
       help: "Recurrence JSON: frequency, optional interval and endDate")
     var recurrence: String?
@@ -123,13 +128,14 @@ struct ReminderCommands: AsyncParsableCommand {
       else { throw ValidationError("Invalid or conflicting reminder schedule options.") }
     }
     var isPresent: Bool {
-      recurrence != nil || clearRecurrence || earlyReminder != nil || clearEarlyReminder
+      temporalAlarm != nil || recurrence != nil || clearRecurrence || earlyReminder != nil
+        || clearEarlyReminder
         || urgent != nil
     }
     #if canImport(EventKit)
       var schedule: ReminderSchedule {
         ReminderSchedule(
-          recurrence: recurrence, clearRecurrence: clearRecurrence,
+          temporalAlarm: temporalAlarm, recurrence: recurrence, clearRecurrence: clearRecurrence,
           earlyReminder: earlyReminder, clearEarlyReminder: clearEarlyReminder, urgent: urgent)
       }
     #endif

@@ -12,6 +12,7 @@
       let endDate: String?
     }
 
+    var temporalAlarm: String?
     var recurrence: String?
     var clearRecurrence = false
     var earlyReminder: Int?
@@ -82,6 +83,9 @@
           throw EventCLIError.invalidInput(
             "Early reminder and Urgent require a due date with a time.")
         }
+      }
+      if let temporalAlarm {
+        try TemporalReminderAlarm.decode(temporalAlarm).apply(to: reminder, now: Date())
       }
       // Validate first, then mutate. Unknown/absolute and location alarms are preserved.
       if clearRecurrence || newRule != nil {

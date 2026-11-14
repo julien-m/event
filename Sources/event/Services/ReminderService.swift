@@ -99,20 +99,28 @@
         schedule: schedule
       )
 
-      // Step 2: Post-process with advanced features if needed (tags, flagged, parentTitle, url)
-      if needsAdvancedProcessing(tags: tags, parentTitle: parentTitle, flagged: flagged, url: url) {
-        try await postProcessReminder(
-          id: reminderId,
-          tags: tags,
-          parentTitle: parentTitle,
-          flagged: flagged,
-          url: url,
-          useShortcuts: useShortcuts
-        )
-      }
+      do {
+        // Step 2: Post-process with advanced features if needed (tags, flagged, parentTitle, url)
+        if needsAdvancedProcessing(tags: tags, parentTitle: parentTitle, flagged: flagged, url: url)
+        {
+          try await postProcessReminder(
+            id: reminderId,
+            tags: tags,
+            parentTitle: parentTitle,
+            flagged: flagged,
+            url: url,
+            useShortcuts: useShortcuts
+          )
+        }
 
-      // Step 3: Fetch and return final state
-      return try fetchReminder(id: reminderId)
+        // Step 3: Fetch and return final state
+        return try fetchReminder(id: reminderId)
+      } catch {
+        if schedule.temporalAlarm != nil {
+          throw EventCLIError.eventKitError("reminder_saved_outcome_unknown:\(reminderId)")
+        }
+        throw error
+      }
     }
 
     /// Update an existing reminder
@@ -159,20 +167,28 @@
         schedule: schedule
       )
 
-      // Step 2: Post-process with advanced features if needed
-      if needsAdvancedProcessing(tags: tags, parentTitle: parentTitle, flagged: flagged, url: url) {
-        try await postProcessReminder(
-          id: id,
-          tags: tags,
-          parentTitle: parentTitle,
-          flagged: flagged,
-          url: url,
-          useShortcuts: useShortcuts
-        )
-      }
+      do {
+        // Step 2: Post-process with advanced features if needed
+        if needsAdvancedProcessing(tags: tags, parentTitle: parentTitle, flagged: flagged, url: url)
+        {
+          try await postProcessReminder(
+            id: id,
+            tags: tags,
+            parentTitle: parentTitle,
+            flagged: flagged,
+            url: url,
+            useShortcuts: useShortcuts
+          )
+        }
 
-      // Step 3: Fetch and return final state
-      return try fetchReminder(id: id)
+        // Step 3: Fetch and return final state
+        return try fetchReminder(id: id)
+      } catch {
+        if schedule.temporalAlarm != nil {
+          throw EventCLIError.eventKitError("reminder_saved_outcome_unknown:\(id)")
+        }
+        throw error
+      }
     }
 
     /// Search reminders by keyword in title and notes
@@ -362,7 +378,10 @@
 
       // Set due date
       if let dueDateString = dueDate {
-        ekReminder.dueDateComponents = try Self.reminderDateComponents(from: dueDateString)
+        ekReminder.dueDateComponents =
+          schedule.temporalAlarm != nil && dueDateString.count > 10
+          ? try TemporalReminderAlarm.dateComponents(dueDateString)
+          : try Self.reminderDateComponents(from: dueDateString)
       }
 
       // Set priority
@@ -382,7 +401,13 @@
 
       try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
-      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
+      do { try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier) } catch {
+        if schedule.temporalAlarm != nil {
+          throw EventCLIError.eventKitError(
+            "reminder_saved_outcome_unknown:\(ekReminder.calendarItemIdentifier)")
+        }
+        throw error
+      }
       return ekReminder.calendarItemIdentifier
     }
 
@@ -427,13 +452,19 @@
       if clearDue {
         ekReminder.dueDateComponents = nil
       } else if let dueDateString = dueDate {
-        ekReminder.dueDateComponents = try Self.reminderDateComponents(from: dueDateString)
+        ekReminder.dueDateComponents =
+          schedule.temporalAlarm != nil && dueDateString.count > 10
+          ? try TemporalReminderAlarm.dateComponents(dueDateString)
+          : try Self.reminderDateComponents(from: dueDateString)
       }
 
       if clearStart {
         ekReminder.startDateComponents = nil
       } else if let startDateString = startDate {
-        ekReminder.startDateComponents = try Self.reminderDateComponents(from: startDateString)
+        ekReminder.startDateComponents =
+          schedule.temporalAlarm != nil && startDateString.count > 10
+          ? try TemporalReminderAlarm.dateComponents(startDateString)
+          : try Self.reminderDateComponents(from: startDateString)
       }
 
       if let priority = priority {
@@ -459,7 +490,13 @@
 
       try schedule.apply(to: ekReminder)
       try eventStore.save(ekReminder, commit: true)
-      try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier)
+      do { try schedule.applyNativeChanges(to: ekReminder.calendarItemIdentifier) } catch {
+        if schedule.temporalAlarm != nil {
+          throw EventCLIError.eventKitError(
+            "reminder_saved_outcome_unknown:\(ekReminder.calendarItemIdentifier)")
+        }
+        throw error
+      }
     }
   }
 
